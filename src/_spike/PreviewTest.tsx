@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createLogger } from '../utils/log'
-import { LogPanel } from '../components/LogPanel'
+import { LogPanel } from '../components/common/LogPanel'
 
 export function PreviewTest() {
   const logger = useMemo(() => createLogger(), [])

@@ -20,9 +20,9 @@ export default defineConfig({
         mode: 'development',
       },
       manifest: {
-        name: 'Video Editor - Capability Spike',
-        short_name: 'VidSpike',
-        description: 'M0 capability spike for mobile video editor',
+        name: 'Video Editor',
+        short_name: 'VidEdit',
+        description: 'Mobile-first video editor',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',

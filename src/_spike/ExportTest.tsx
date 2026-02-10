@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { createLogger } from '../utils/log'
-import { LogPanel } from '../components/LogPanel'
+import { LogPanel } from '../components/common/LogPanel'
 
 const MIME_CANDIDATES = [
   'video/mp4',

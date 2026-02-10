@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { createLogger } from '../utils/log'
-import { LogPanel } from '../components/LogPanel'
+import { LogPanel } from '../components/common/LogPanel'
 
 export function StorageTest() {
   const logger = useMemo(() => createLogger(), [])

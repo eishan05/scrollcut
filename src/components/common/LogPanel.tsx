@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Logger, LogEntry } from '../utils/log'
+import type { Logger, LogEntry } from '../../utils/log'
 
 const levelColors: Record<LogEntry['level'], string> = {
   info: 'text-slate-400',
