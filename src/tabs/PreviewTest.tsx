@@ -11,6 +11,7 @@ export function PreviewTest() {
   const [playing, setPlaying] = useState(false)
   const [fps, setFps] = useState(0)
   const animRef = useRef<number>(0)
+  const loopActiveRef = useRef(false)
   const frameCountRef = useRef(0)
   const lastFpsTimeRef = useRef(0)
 
@@ -41,6 +42,9 @@ export function PreviewTest() {
     if (!ctx) return
 
     const now = performance.now()
+    const dpr = window.devicePixelRatio || 1
+    const w = canvas.width / dpr
+    const h = canvas.height / dpr
 
     // FPS calculation
     frameCountRef.current++
@@ -51,7 +55,7 @@ export function PreviewTest() {
     }
 
     // Clear
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.clearRect(0, 0, w, h)
 
     // Timestamp overlay
     const t = video.currentTime
@@ -62,8 +66,8 @@ export function PreviewTest() {
     ctx.fillText(`Time: ${t.toFixed(2)}s`, 20, 34)
 
     // Moving circle
-    const cx = (Math.sin(now / 500) * 0.3 + 0.5) * canvas.width
-    const cy = (Math.cos(now / 700) * 0.3 + 0.5) * canvas.height
+    const cx = (Math.sin(now / 500) * 0.3 + 0.5) * w
+    const cy = (Math.cos(now / 700) * 0.3 + 0.5) * h
     ctx.beginPath()
     ctx.arc(cx, cy, 20, 0, Math.PI * 2)
     ctx.fillStyle = 'rgba(59, 130, 246, 0.7)'
@@ -74,21 +78,24 @@ export function PreviewTest() {
 
     // FPS overlay
     ctx.fillStyle = fps >= 25 ? '#4ade80' : fps >= 15 ? '#facc15' : '#ef4444'
-    ctx.fillRect(canvas.width - 80, 10, 70, 28)
+    ctx.fillRect(w - 80, 10, 70, 28)
     ctx.fillStyle = '#000'
     ctx.font = 'bold 14px monospace'
-    ctx.fillText(`${fps} fps`, canvas.width - 72, 30)
+    ctx.fillText(`${fps} fps`, w - 72, 30)
   }, [fps])
 
   // Animation loop using rVFC or rAF
   const startLoop = useCallback(() => {
     const video = videoRef.current
     if (!video) return
+    if (loopActiveRef.current) return
+    loopActiveRef.current = true
 
     const hasRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype
 
     if (hasRVFC) {
       const onFrame = () => {
+        if (!loopActiveRef.current) return
         renderOverlay()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ;(video as any).requestVideoFrameCallback(onFrame)
@@ -96,10 +103,12 @@ export function PreviewTest() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(video as any).requestVideoFrameCallback(onFrame)
       logger.info('Using requestVideoFrameCallback for sync')
+      return
     }
 
-    // Always run rAF too for smooth overlay animation
+    // Fallback to rAF when rVFC isn't available.
     const rafLoop = () => {
+      if (!loopActiveRef.current) return
       renderOverlay()
       animRef.current = requestAnimationFrame(rafLoop)
     }
@@ -112,6 +121,7 @@ export function PreviewTest() {
 
     if (playing) {
       video.pause()
+      loopActiveRef.current = false
       cancelAnimationFrame(animRef.current)
       setPlaying(false)
       logger.info('Paused')
@@ -134,12 +144,13 @@ export function PreviewTest() {
 
     const resize = () => {
       const rect = container.getBoundingClientRect()
-      canvas.width = rect.width * window.devicePixelRatio
-      canvas.height = rect.height * window.devicePixelRatio
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr))
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr))
       canvas.style.width = `${rect.width}px`
       canvas.style.height = `${rect.height}px`
       const ctx = canvas.getContext('2d')
-      if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
     resize()
     window.addEventListener('resize', resize)

@@ -13,6 +13,12 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['vite.svg'],
+      // Workbox's SW bundling uses Rollup + terser in production mode.
+      // With Node v25 this can fail with "Unexpected early exit" / unfinished terser hooks.
+      // Keeping mode=development avoids terser while we spike capabilities.
+      workbox: {
+        mode: 'development',
+      },
       manifest: {
         name: 'Video Editor - Capability Spike',
         short_name: 'VidSpike',

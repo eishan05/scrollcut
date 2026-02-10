@@ -18,13 +18,22 @@ export function ExportTest() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
+  const [resultMime, setResultMime] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
   const recorderRef = useRef<MediaRecorder | null>(null)
+  const resultUrlRef = useRef<string | null>(null)
+  const stopTimerRef = useRef<number | null>(null)
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (videoUrl) URL.revokeObjectURL(videoUrl)
+    if (resultUrlRef.current) {
+      URL.revokeObjectURL(resultUrlRef.current)
+      resultUrlRef.current = null
+    }
+    setResultUrl(null)
+    setResultMime(null)
     setVideoUrl(URL.createObjectURL(file))
     logger.info(`Source video: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`)
   }, [videoUrl, logger])
@@ -46,126 +55,177 @@ export function ExportTest() {
     const canvas = canvasRef.current
     if (!video || !canvas) return
 
-    // Set canvas size
+    if (recording) return
+
+    // Wait for metadata so duration/currentTime behave.
+    if (video.readyState < 1) {
+      await new Promise<void>((resolve, reject) => {
+        const onLoaded = () => resolve()
+        const onError = () => reject(new Error('Video failed to load metadata'))
+        video.addEventListener('loadedmetadata', onLoaded, { once: true })
+        video.addEventListener('error', onError, { once: true })
+      })
+    }
+
+    // Clear any previous auto-stop timer.
+    if (stopTimerRef.current) {
+      window.clearTimeout(stopTimerRef.current)
+      stopTimerRef.current = null
+    }
+
+    // Set canvas size (portrait).
     canvas.width = 1080
     canvas.height = 1920
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      logger.fail('Canvas 2D context unavailable')
+      return
+    }
 
-    const ctx = canvas.getContext('2d')!
+    let audioCtx: AudioContext | null = null
+    let osc: OscillatorNode | null = null
+    let cleanupCalled = false
+    const cleanup = () => {
+      if (cleanupCalled) return
+      cleanupCalled = true
+      try { osc?.stop() } catch { /* noop */ }
+      osc = null
+      if (audioCtx) {
+        audioCtx.close().catch(() => {})
+        audioCtx = null
+      }
+      recorderRef.current = null
+      setRecording(false)
+    }
 
-    // Set up audio context
-    const audioCtx = new AudioContext()
-    const source = audioCtx.createMediaElementSource(video)
-    const dest = audioCtx.createMediaStreamDestination()
+    try {
+      // Set up audio context + test tone + (best-effort) video audio.
+      audioCtx = new AudioContext()
+      await audioCtx.resume().catch(() => {})
 
-    // Add a subtle test tone
-    const osc = audioCtx.createOscillator()
-    const oscGain = audioCtx.createGain()
-    osc.frequency.value = 440
-    oscGain.gain.value = 0.05
-    osc.connect(oscGain)
-    oscGain.connect(dest)
-    osc.start()
+      const dest = audioCtx.createMediaStreamDestination()
 
-    // Connect video audio to both destination and speakers
-    const gainNode = audioCtx.createGain()
-    gainNode.gain.value = 1
-    source.connect(gainNode)
-    gainNode.connect(dest)
-    gainNode.connect(audioCtx.destination)
+      osc = audioCtx.createOscillator()
+      const oscGain = audioCtx.createGain()
+      osc.frequency.value = 440
+      oscGain.gain.value = 0.05
+      osc.connect(oscGain)
+      oscGain.connect(dest)
+      osc.start()
 
-    // Combine canvas stream + audio
-    const canvasStream = canvas.captureStream(30)
-    const combined = new MediaStream([
-      ...canvasStream.getVideoTracks(),
-      ...dest.stream.getAudioTracks(),
-    ])
+      try {
+        const source = audioCtx.createMediaElementSource(video)
+        const gainNode = audioCtx.createGain()
+        gainNode.gain.value = 1
+        source.connect(gainNode)
+        gainNode.connect(dest)
+        gainNode.connect(audioCtx.destination)
+      } catch (err) {
+        logger.warn(`Video audio capture unavailable: ${err instanceof Error ? err.message : String(err)}`)
+      }
 
-    // Choose MIME type
-    let mimeType = 'video/mp4'
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/webm;codecs=vp8,opus'
+      // Combine canvas stream + audio.
+      const canvasStream = canvas.captureStream(30)
+      const combined = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ])
+
+      // Choose MIME type.
+      let mimeType = 'video/mp4'
       if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/webm'
+        mimeType = 'video/webm;codecs=vp8,opus'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'video/webm'
+        }
       }
-    }
+      logger.info(`Recording MIME: ${mimeType}`)
 
-    logger.info(`Recording MIME: ${mimeType}`)
+      const recorder = new MediaRecorder(combined, {
+        mimeType,
+        videoBitsPerSecond: 5_000_000,
+      })
+      recorderRef.current = recorder
+      const chunks: Blob[] = []
 
-    const recorder = new MediaRecorder(combined, {
-      mimeType,
-      videoBitsPerSecond: 5_000_000,
-    })
-    recorderRef.current = recorder
-    const chunks: Blob[] = []
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data)
-    }
-
-    recorder.onstop = () => {
-      osc.stop()
-      audioCtx.close()
-      const blob = new Blob(chunks, { type: mimeType })
-      if (resultUrl) URL.revokeObjectURL(resultUrl)
-      const url = URL.createObjectURL(blob)
-      setResultUrl(url)
-      logger.pass(`Recording complete: ${(blob.size / 1024 / 1024).toFixed(2)}MB`)
-      logger.info(`Blob MIME: ${blob.type}`)
-      logger.info(`Is MP4: ${blob.type.includes('mp4') ? 'YES' : 'NO'}`)
-      setRecording(false)
-    }
-
-    recorder.onerror = (e) => {
-      logger.fail(`Recorder error: ${e}`)
-      setRecording(false)
-    }
-
-    // Render loop: draw video frames + overlays onto canvas
-    const startTime = performance.now()
-    let frameCount = 0
-
-    const renderFrame = () => {
-      if (recorder.state !== 'recording') return
-
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-      // Text overlay
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'
-      ctx.fillRect(40, 40, 400, 60)
-      ctx.fillStyle = '#fff'
-      ctx.font = 'bold 28px sans-serif'
-      ctx.fillText(`Export Test - ${video.currentTime.toFixed(1)}s`, 60, 80)
-
-      // Frame counter
-      frameCount++
-      ctx.fillStyle = '#4ade80'
-      ctx.font = '20px monospace'
-      ctx.fillText(`Frame: ${frameCount}`, 60, 130)
-
-      requestAnimationFrame(renderFrame)
-    }
-
-    // Start
-    video.currentTime = 0
-    await video.play()
-    recorder.start(100)
-    setRecording(true)
-    renderFrame()
-    logger.info('Recording started...')
-
-    // Auto-stop after video ends or 15s
-    const maxDuration = Math.min(video.duration, 15) * 1000
-    setTimeout(() => {
-      if (recorder.state === 'recording') {
-        recorder.stop()
-        video.pause()
-        const elapsed = ((performance.now() - startTime) / 1000).toFixed(1)
-        logger.info(`Recorded ${elapsed}s, ${frameCount} frames (${(frameCount / parseFloat(elapsed)).toFixed(1)} fps)`)
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data)
       }
-    }, maxDuration)
-  }, [videoUrl, resultUrl, logger])
+
+      recorder.onerror = (e) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const msg = (e as any)?.error?.message ?? (e as any)?.name ?? String(e)
+        logger.fail(`Recorder error: ${msg}`)
+        cleanup()
+      }
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType })
+        if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current)
+        const url = URL.createObjectURL(blob)
+        resultUrlRef.current = url
+        setResultUrl(url)
+        setResultMime(mimeType)
+        logger.pass(`Recording complete: ${(blob.size / 1024 / 1024).toFixed(2)}MB`)
+        logger.info(`Blob MIME: ${blob.type}`)
+        logger.info(`Is MP4: ${blob.type.includes('mp4') ? 'YES' : 'NO'}`)
+        cleanup()
+      }
+
+      // Render loop: draw video frames + overlays onto canvas.
+      const startTime = performance.now()
+      let frameCount = 0
+      const renderFrame = () => {
+        if (recorder.state !== 'recording') return
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'
+        ctx.fillRect(40, 40, 520, 60)
+        ctx.fillStyle = '#fff'
+        ctx.font = 'bold 28px sans-serif'
+        ctx.fillText(`Export Test - ${video.currentTime.toFixed(1)}s`, 60, 80)
+
+        frameCount++
+        ctx.fillStyle = '#4ade80'
+        ctx.font = '20px monospace'
+        ctx.fillText(`Frame: ${frameCount}`, 60, 130)
+
+        requestAnimationFrame(renderFrame)
+      }
+
+      // Start.
+      video.pause()
+      video.currentTime = 0
+      await video.play().catch((err) => {
+        throw new Error(`Play failed: ${err instanceof Error ? err.message : String(err)}`)
+      })
+      recorder.start(100)
+      setRecording(true)
+      renderFrame()
+      logger.info('Recording started...')
+
+      // Auto-stop after video ends or 15s (whichever is sooner).
+      const durationSec = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 15
+      const maxDurationMs = Math.min(durationSec, 15) * 1000
+      stopTimerRef.current = window.setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop()
+          video.pause()
+          const elapsedSec = (performance.now() - startTime) / 1000
+          logger.info(`Recorded ${elapsedSec.toFixed(1)}s, ${frameCount} frames (${(frameCount / elapsedSec).toFixed(1)} fps)`)
+        }
+      }, maxDurationMs)
+    } catch (err) {
+      logger.fail(`${err instanceof Error ? err.message : String(err)}`)
+      cleanup()
+    }
+  }, [logger, recording])
 
   const stopRecording = useCallback(() => {
+    if (stopTimerRef.current) {
+      window.clearTimeout(stopTimerRef.current)
+      stopTimerRef.current = null
+    }
     if (recorderRef.current?.state === 'recording') {
       recorderRef.current.stop()
       videoRef.current?.pause()
@@ -245,7 +305,7 @@ export function ExportTest() {
           <div className="mt-2 text-center">
             <a
               href={resultUrl}
-              download="export-test.mp4"
+              download={`export-test.${resultMime?.includes('webm') ? 'webm' : 'mp4'}`}
               className="text-blue-400 text-sm underline"
             >
               Download Result
