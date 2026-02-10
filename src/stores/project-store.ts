@@ -22,7 +22,6 @@ interface ProjectState {
   removeClip: (clipId: string) => void
   updateClip: (clipId: string, updates: Partial<Clip>) => void
   reorderClips: (clips: Clip[]) => void
-
   // Overlay mutations
   addOverlay: (overlay: TextOverlay) => void
   removeOverlay: (overlayId: string) => void

@@ -3,6 +3,7 @@ import { BottomSheet } from '../layout/BottomSheet'
 import { useUIStore } from '../../stores/ui-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useMediaStore } from '../../stores/media-store'
+import { useHistoryStore } from '../../stores/history-store'
 import type { AspectRatio } from '../../types/common'
 
 const ASPECT_OPTIONS: { value: AspectRatio; label: string; desc: string }[] = [
@@ -23,12 +24,16 @@ export function NewProjectSheet() {
 
   const handleCreate = () => {
     const projectName = name.trim() || 'Untitled Project'
-    createProject(projectName, aspectRatio)
+    const project = createProject(projectName, aspectRatio)
     setAssets([])
     setName('')
     setAspectRatio('9:16')
     closeSheet()
     setActivePanel('editor')
+
+    // Initialize undo history with the new project
+    useHistoryStore.getState().clear()
+    useHistoryStore.getState().pushSnapshot(project)
   }
 
   return (

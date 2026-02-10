@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useUIStore } from '../../stores/ui-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useMediaStore } from '../../stores/media-store'
+import { useTimelineStore } from '../../stores/timeline-store'
 import { BottomNav } from './BottomNav'
 import { VideoPreview } from '../preview/VideoPreview'
 import { ProjectList } from '../project/ProjectList'
@@ -13,6 +14,8 @@ import { readThumbnail, deleteMediaFile, deleteThumbnail } from '../../storage/m
 import type { MediaAsset } from '../../types/media'
 import { deleteMediaAsset } from '../../storage/project-persistence'
 import { AssetPacksSheet } from '../settings/AssetPacksSheet'
+import { Timeline } from '../timeline/Timeline'
+import { ClipProperties } from '../timeline/ClipProperties'
 
 function AssetThumb({ asset }: { asset: MediaAsset }) {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
@@ -57,10 +60,19 @@ function EditorContent() {
   const assets = useMediaStore((s) => s.assets)
   const removeClip = useProjectStore((s) => s.removeClip)
   const removeAsset = useMediaStore((s) => s.removeAsset)
+  const selectedClipId = useTimelineStore((s) => s.selectedClipId)
 
   return (
     <div>
       <ImportProgress />
+
+      {/* Show clip properties when a clip is selected */}
+      {selectedClipId && (
+        <div className="mb-3">
+          <ClipProperties />
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-medium text-white">
           Media ({assets.length})
@@ -134,10 +146,17 @@ export function AppShell() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Preview area — top ~50% when in editor mode */}
+      {/* Preview area — top ~45% when in editor mode */}
       {activePanel === 'editor' && hasProject && (
         <div className="shrink-0 p-3 pt-[env(safe-area-inset-top)]">
           <VideoPreview />
+        </div>
+      )}
+
+      {/* Timeline — 120px horizontal scroll strip */}
+      {activePanel === 'editor' && hasProject && (
+        <div className="shrink-0">
+          <Timeline />
         </div>
       )}
 

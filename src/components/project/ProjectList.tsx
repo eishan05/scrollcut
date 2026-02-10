@@ -4,6 +4,7 @@ import { listProjects, deleteProject } from '../../storage/project-persistence'
 import { useProjectStore } from '../../stores/project-store'
 import { useMediaStore } from '../../stores/media-store'
 import { useUIStore } from '../../stores/ui-store'
+import { useHistoryStore } from '../../stores/history-store'
 import { getProjectMediaAssets } from '../../storage/project-persistence'
 import { ProjectCard } from './ProjectCard'
 
@@ -28,6 +29,10 @@ export function ProjectList() {
     const assets = await getProjectMediaAssets(project.id)
     setAssets(assets)
     setActivePanel('editor')
+
+    // Initialize undo history with the loaded project
+    useHistoryStore.getState().clear()
+    useHistoryStore.getState().pushSnapshot(project)
   }, [setProject, setAssets, setActivePanel])
 
   const handleDelete = useCallback(async (projectId: string) => {

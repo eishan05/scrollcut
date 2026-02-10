@@ -5,6 +5,7 @@ import { recoverAutoSave, clearAutoSave } from './storage/auto-save'
 import { useProjectStore } from './stores/project-store'
 import { useMediaStore } from './stores/media-store'
 import { useUIStore } from './stores/ui-store'
+import { useHistoryStore } from './stores/history-store'
 import { getProjectMediaAssets } from './storage/project-persistence'
 
 export default function App() {
@@ -19,6 +20,9 @@ export default function App() {
         useMediaStore.getState().setAssets(assets)
         useUIStore.getState().setActivePanel('editor')
         await clearAutoSave()
+
+        // Initialize history with recovered project
+        useHistoryStore.getState().pushSnapshot(project)
       }
     })
   }, [])

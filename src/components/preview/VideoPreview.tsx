@@ -1,44 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { useProjectStore } from '../../stores/project-store'
 import { useMediaStore } from '../../stores/media-store'
-import { getMediaFile } from '../../storage/media-storage'
+import { useTimelineStore } from '../../stores/timeline-store'
 import { useVideoPreview } from '../../hooks/use-video-preview'
+import { usePlaybackEngine } from '../../hooks/use-playback-engine'
 import { AspectRatioContainer } from './AspectRatioContainer'
 
 export function VideoPreview() {
   const project = useProjectStore((s) => s.currentProject)
   const assets = useMediaStore((s) => s.assets)
-  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const isPlaying = useTimelineStore((s) => s.isPlaying)
 
-  // Get the first clip's media asset for preview
-  const firstClip = project?.timeline.clips[0]
-  const activeAsset = firstClip
-    ? assets.find((a) => a.id === firstClip.mediaAssetId)
-    : assets[0] // Fall back to first imported asset
-
-  // Load video from OPFS when active asset changes
-  useEffect(() => {
-    let revoked = false
-
-    if (activeAsset) {
-      getMediaFile(activeAsset.opfsPath)
-        .then((file) => {
-          if (revoked) return
-          setVideoUrl(URL.createObjectURL(file))
-        })
-        .catch(() => {
-          if (!revoked) setVideoUrl(null)
-        })
-    }
-
-    return () => {
-      revoked = true
-      setVideoUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev)
-        return null
-      })
-    }
-  }, [activeAsset])
+  const { videoUrl, videoRef, play, pause } = usePlaybackEngine()
 
   const onFrame = useCallback((ctx: CanvasRenderingContext2D, _video: HTMLVideoElement, time: number) => {
     const canvas = ctx.canvas
@@ -57,7 +30,15 @@ export function VideoPreview() {
     ctx.fillRect(w - 70, 8, 62, 24)
   }, [])
 
-  const { videoRef, canvasRef, containerRef, playing, fps, togglePlay } = useVideoPreview({ onFrame })
+  const { canvasRef, containerRef, playing, fps } = useVideoPreview({ onFrame, videoRef })
+
+  const handleTogglePlay = useCallback(async () => {
+    if (isPlaying) {
+      pause()
+    } else {
+      await play()
+    }
+  }, [isPlaying, pause, play])
 
   const aspectRatio = project?.aspectRatio ?? '9:16'
 
@@ -92,10 +73,10 @@ export function VideoPreview() {
       {videoUrl && (
         <div className="flex items-center gap-3">
           <button
-            onClick={togglePlay}
+            onClick={handleTogglePlay}
             className="bg-slate-700 text-white text-sm px-4 py-1.5 rounded-lg active:bg-slate-600"
           >
-            {playing ? 'Pause' : 'Play'}
+            {isPlaying ? 'Pause' : 'Play'}
           </button>
           {playing && (
             <span className={`text-xs font-mono ${fps >= 25 ? 'text-green-400' : fps >= 15 ? 'text-yellow-400' : 'text-red-400'}`}>

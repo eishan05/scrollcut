@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 
 interface UseVideoPreviewOptions {
   onFrame?: (ctx: CanvasRenderingContext2D, video: HTMLVideoElement, time: number) => void
+  videoRef?: RefObject<HTMLVideoElement | null>
 }
 
 export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const internalVideoRef = useRef<HTMLVideoElement>(null)
+  const videoRef = options.videoRef ?? internalVideoRef
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -14,6 +17,8 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
   const animRef = useRef<number>(0)
   const frameCountRef = useRef(0)
   const lastFpsTimeRef = useRef(0)
+  const startLoopRef = useRef<() => void>(() => {})
+  const stopLoopRef = useRef<() => void>(() => {})
   const onFrameRef = useRef(options.onFrame)
   useEffect(() => {
     onFrameRef.current = options.onFrame
@@ -40,7 +45,7 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
     return () => window.removeEventListener('resize', resize)
   }, [])
 
-  const renderFrame = useCallback(() => {
+  const renderFrame = () => {
     const canvas = canvasRef.current
     const video = videoRef.current
     if (!canvas || !video) return
@@ -66,9 +71,9 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
 
     // Custom frame callback
     onFrameRef.current?.(ctx, video, video.currentTime)
-  }, [])
+  }
 
-  const startLoop = useCallback(() => {
+  const startLoop = () => {
     const video = videoRef.current
     if (!video || loopActiveRef.current) return
     loopActiveRef.current = true
@@ -92,69 +97,97 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
       }
       animRef.current = requestAnimationFrame(rafLoop)
     }
-  }, [renderFrame])
+  }
 
-  const stopLoop = useCallback(() => {
+  const stopLoop = () => {
     loopActiveRef.current = false
     cancelAnimationFrame(animRef.current)
-  }, [])
+  }
 
-  const play = useCallback(async () => {
+  // Provide stable loop controls to effects/event listeners.
+  useEffect(() => {
+    startLoopRef.current = startLoop
+    stopLoopRef.current = stopLoop
+  })
+
+  const play = async () => {
     const video = videoRef.current
     if (!video) return
     try {
       await video.play()
       setPlaying(true)
-      startLoop()
+      startLoopRef.current()
     } catch {
-      stopLoop()
+      stopLoopRef.current()
       setPlaying(false)
     }
-  }, [startLoop, stopLoop])
+  }
 
-  const pause = useCallback(() => {
+  const pause = () => {
     const video = videoRef.current
     if (!video) return
     video.pause()
-    stopLoop()
+    stopLoopRef.current()
     setPlaying(false)
-  }, [stopLoop])
+  }
 
-  const togglePlay = useCallback(async () => {
+  const togglePlay = async () => {
     if (playing) {
       pause()
     } else {
       await play()
     }
-  }, [playing, play, pause])
+  }
+
+  const seek = (time: number) => {
+    const video = videoRef.current
+    if (!video) return
+    video.currentTime = time
+  }
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => stopLoop()
-  }, [stopLoop])
+    return () => stopLoopRef.current()
+  }, [])
 
   // Keep state in sync with media element lifecycle.
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
+    const handlePlay = () => {
+      setPlaying(true)
+      startLoopRef.current()
+    }
+
+    const handlePause = () => {
+      stopLoopRef.current()
+      setPlaying(false)
+    }
+
     const handleEnded = () => {
-      stopLoop()
+      stopLoopRef.current()
       setPlaying(false)
     }
 
     const handleError = () => {
-      stopLoop()
+      stopLoopRef.current()
       setPlaying(false)
     }
 
     video.addEventListener('ended', handleEnded)
     video.addEventListener('error', handleError)
+    video.addEventListener('play', handlePlay)
+    video.addEventListener('playing', handlePlay)
+    video.addEventListener('pause', handlePause)
     return () => {
       video.removeEventListener('ended', handleEnded)
       video.removeEventListener('error', handleError)
+      video.removeEventListener('play', handlePlay)
+      video.removeEventListener('playing', handlePlay)
+      video.removeEventListener('pause', handlePause)
     }
-  }, [stopLoop])
+  }, [videoRef])
 
   return {
     videoRef,
@@ -165,5 +198,6 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
     play,
     pause,
     togglePlay,
+    seek,
   }
 }
