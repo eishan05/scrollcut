@@ -16,27 +16,61 @@ export function StorageTest() {
       const data = new Uint8Array(size)
       for (let i = 0; i < size; i++) data[i] = i & 0xff
 
-      const writeStart = performance.now()
       const fileHandle = await root.getFileHandle('test-10mb.bin', { create: true })
 
-      // Try sync access handle first (faster), fall back to writable stream
-      let usedSyncAccess = false
+      // Safari/iOS doesn't support createWritable(), only createSyncAccessHandle() in Workers.
+      // Use an inline Worker so this works cross-browser.
+      const workerCode = `
+        self.onmessage = async (e) => {
+          try {
+            const { data } = e.data;
+            const root = await navigator.storage.getDirectory();
+            const fh = await root.getFileHandle('test-10mb.bin', { create: true });
+            const ah = await fh.createSyncAccessHandle();
+            ah.write(data);
+            ah.flush();
+            ah.close();
+            self.postMessage({ ok: true });
+          } catch (err) {
+            self.postMessage({ ok: false, error: err.message });
+          }
+        };
+      `
+
+      const writeStart = performance.now()
+      let method = 'SyncAccessHandle (Worker)'
+
+      // Try Worker-based sync access first (works in Safari + Chrome)
+      let wroteViaWorker = false
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const accessHandle = await (fileHandle as any).createSyncAccessHandle()
-        accessHandle.write(data)
-        accessHandle.flush()
-        accessHandle.close()
-        usedSyncAccess = true
+        const blob = new Blob([workerCode], { type: 'application/javascript' })
+        const url = URL.createObjectURL(blob)
+        const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+          const w = new Worker(url)
+          w.onmessage = (e) => { resolve(e.data); w.terminate() }
+          w.onerror = (e) => { resolve({ ok: false, error: e.message }); w.terminate() }
+          w.postMessage({ data }, [data.buffer])
+        })
+        URL.revokeObjectURL(url)
+        if (!result.ok) throw new Error(result.error)
+        wroteViaWorker = true
       } catch {
-        // Sync access not available on main thread in most browsers
-        const writable = await fileHandle.createWritable()
-        await writable.write(data)
-        await writable.close()
+        // Worker approach failed, try createWritable (Chrome main thread)
+      }
+
+      if (!wroteViaWorker) {
+        if (typeof fileHandle.createWritable === 'function') {
+          const writable = await fileHandle.createWritable()
+          await writable.write(data)
+          await writable.close()
+          method = 'WritableStream'
+        } else {
+          throw new Error('No supported OPFS write method available')
+        }
       }
 
       const writeTime = performance.now() - writeStart
-      logger.pass(`Write 10MB: ${writeTime.toFixed(0)}ms (${usedSyncAccess ? 'SyncAccessHandle' : 'WritableStream'})`)
+      logger.pass(`Write 10MB: ${writeTime.toFixed(0)}ms (${method})`)
 
       // Read back
       const readStart = performance.now()
@@ -45,7 +79,7 @@ export function StorageTest() {
       const readTime = performance.now() - readStart
       logger.pass(`Read 10MB: ${readTime.toFixed(0)}ms`)
 
-      // Verify
+      // Verify — data was transferred to worker so re-generate expected values
       let match = readBuf.length === size
       if (match) {
         for (let i = 0; i < 1000; i++) {
