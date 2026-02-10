@@ -32,8 +32,21 @@ class ThumbnailStripService {
     for (const fn of this.listeners) fn(key, urls)
   }
 
-  getCacheKey(mediaAssetId: string, cellCount: number): string {
-    return `${mediaAssetId}:${cellCount}`
+  private normalizeTime(t: number): number {
+    // Avoid cache fragmentation from tiny float differences while still
+    // producing correct strips for different trims.
+    return Math.round(t * 100) / 100
+  }
+
+  getCacheKey(
+    mediaAssetId: string,
+    cellCount: number,
+    trimStart: number,
+    trimDuration: number,
+  ): string {
+    const s = this.normalizeTime(trimStart)
+    const d = this.normalizeTime(trimDuration)
+    return `${mediaAssetId}:${cellCount}:${s}:${d}`
   }
 
   getCached(key: string): (string | null)[] | null {
@@ -52,7 +65,7 @@ class ThumbnailStripService {
     trimDuration: number,
     cellCount: number,
   ): void {
-    const key = this.getCacheKey(mediaAssetId, cellCount)
+    const key = this.getCacheKey(mediaAssetId, cellCount, trimStart, trimDuration)
 
     // Already cached
     if (this.cache.has(key)) return

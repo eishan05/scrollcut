@@ -22,6 +22,7 @@ export default function App() {
         await clearAutoSave()
 
         // Initialize history with recovered project
+        useHistoryStore.getState().clear()
         useHistoryStore.getState().pushSnapshot(project)
       }
     })

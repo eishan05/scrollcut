@@ -288,21 +288,14 @@ export function usePlaybackEngine() {
       return
     }
 
-    // If we already have a valid current clip and a URL, don't reload.
-    if (videoUrl && currentClipIdRef.current && clips.some((c) => c.id === currentClipIdRef.current)) {
-      return
+    // If we're paused, keep preview synced with the current playhead even
+    // when the clip list changes (undo/redo, split, delete, reorder, trim).
+    if (!playingRef.current) {
+      const t = useTimelineStore.getState().playheadTime
+      // Defer to avoid synchronous setState inside effect body.
+      queueMicrotask(() => seekVideo(t))
     }
-
-    const sorted = [...clips].sort((a, b) => a.order - b.order)
-    const firstClip = sorted[0]
-
-    loadClipVideo(firstClip.mediaAssetId).then((url) => {
-      if (url) {
-        setSourceAndSeek(url, firstClip.trim.start)
-        currentClipIdRef.current = firstClip.id
-      }
-    })
-  }, [clipsKey, loadClipVideo, projectId, setSourceAndSeek, videoUrl])
+  }, [clipsKey, projectId, seekVideo])
 
   // Handle scrubbing from timeline
   useEffect(() => {
@@ -321,7 +314,16 @@ export function usePlaybackEngine() {
     return useTimelineStore.subscribe(
       (state) => state.playheadTime,
       (playheadTime) => {
-        if (useTimelineStore.getState().isScrubbing) {
+        const { isScrubbing } = useTimelineStore.getState()
+
+        // During scrubbing, always seek.
+        if (isScrubbing) {
+          seekVideo(playheadTime)
+          return
+        }
+
+        // When paused, keep the preview in sync with programmatic/tap playhead changes.
+        if (!playingRef.current) {
           seekVideo(playheadTime)
         }
       },

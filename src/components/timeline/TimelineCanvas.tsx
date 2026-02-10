@@ -20,6 +20,7 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
   const dirtyRef = useRef(true)
   const rafRef = useRef(0)
   const thumbnailImagesRef = useRef(new Map<string, HTMLImageElement[]>())
+  const thumbnailKeyByClipIdRef = useRef(new Map<string, string>()) // clipId -> cache key
   const videoUrlsRef = useRef(new Map<string, string>()) // mediaAssetId -> objectUrl
 
   const gestures = useTimelineGestures(scrollContainerRef)
@@ -85,11 +86,15 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
   // Cleanup object URLs on unmount.
   useEffect(() => {
     const map = videoUrlsRef.current
+    const imageMap = thumbnailImagesRef.current
+    const keyMap = thumbnailKeyByClipIdRef.current
     return () => {
       for (const url of map.values()) {
         URL.revokeObjectURL(url)
       }
       map.clear()
+      imageMap.clear()
+      keyMap.clear()
     }
   }, [])
 
@@ -150,6 +155,7 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
       const timelineState = useTimelineStore.getState()
       const projectState = useProjectStore.getState()
       const clips = projectState.currentProject?.timeline.clips ?? []
+      const clipById = new Map(clips.map((c) => [c.id, c]))
       const pps = timelineState.pixelsPerSecond
       const layouts = computeClipLayouts(clips, pps)
 
@@ -168,17 +174,23 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
       // Request thumbnail strips and build image maps
       const thumbnailImages = new Map<string, HTMLImageElement[]>()
       for (const layout of layouts) {
-        const clip = clips.find((c) => c.id === layout.clipId)
+        const clip = clipById.get(layout.clipId)
         if (!clip) continue
 
         const cellCount = Math.max(1, Math.ceil(layout.width / CELL_WIDTH))
-        const key = thumbnailStripService.getCacheKey(clip.mediaAssetId, cellCount)
+        const key = thumbnailStripService.getCacheKey(
+          clip.mediaAssetId,
+          cellCount,
+          clip.trim.start,
+          clip.trim.duration,
+        )
         const cached = thumbnailStripService.getCached(key)
 
         if (cached) {
           // Convert to HTMLImageElement array (cached per draw)
           const existing = thumbnailImagesRef.current.get(layout.clipId)
-          if (!existing || existing.length !== cached.length) {
+          const prevKey = thumbnailKeyByClipIdRef.current.get(layout.clipId)
+          if (!existing || existing.length !== cached.length || prevKey !== key) {
             const imgs: HTMLImageElement[] = cached.map((url) => {
               if (!url) return new Image()
               const img = new Image()
@@ -187,6 +199,7 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
               return img
             })
             thumbnailImagesRef.current.set(layout.clipId, imgs)
+            thumbnailKeyByClipIdRef.current.set(layout.clipId, key)
             thumbnailImages.set(layout.clipId, imgs)
           } else {
             thumbnailImages.set(layout.clipId, existing)

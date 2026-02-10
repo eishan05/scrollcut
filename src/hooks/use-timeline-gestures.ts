@@ -69,7 +69,14 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
     if (pointers.current.size === 2) {
       clearLongPress()
       gestureMode.current = 'pinch'
-      canvas.setPointerCapture(e.pointerId)
+      // Capture both pointers so we keep receiving move events reliably.
+      for (const id of pointers.current.keys()) {
+        try {
+          canvas.setPointerCapture(id)
+        } catch {
+          // Ignore failures (e.g., if capture is not allowed for a pointer id).
+        }
+      }
       const pts = Array.from(pointers.current.values())
       pinchStartDist.current = Math.abs(pts[0].startX - pts[1].startX)
       pinchStartPps.current = pps
@@ -157,6 +164,7 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
     const x = e.clientX - rect.left
 
     const dx = x - ptr.startX
+    ptr.lastX = x
 
     const store = useTimelineStore.getState()
     const pps = store.pixelsPerSecond
@@ -168,7 +176,6 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
         container.scrollLeft += delta
         useTimelineStore.getState().setScrollX(container.scrollLeft)
       }
-      ptr.lastX = x
     }
 
     switch (gestureMode.current) {
@@ -180,7 +187,6 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
           applyScrollMove()
           break
         } else {
-          ptr.lastX = x
           return
         }
       }
@@ -192,9 +198,8 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
       case 'pinch': {
         if (pointers.current.size < 2) return
         const pts = Array.from(pointers.current.values())
-        const otherPtr = pts.find((p) => p.pointerId !== e.pointerId)
-        if (!otherPtr) return
-        const currentDist = Math.abs(x - otherPtr.lastX)
+        if (pts.length < 2) return
+        const currentDist = Math.abs(pts[0].lastX - pts[1].lastX)
         if (pinchStartDist.current > 0) {
           const scale = currentDist / pinchStartDist.current
           const newPps = Math.round(pinchStartPps.current * scale)
