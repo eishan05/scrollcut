@@ -210,7 +210,8 @@ interface StyleVariant {
 
 - React + Vite + PWA scaffolding
 - OPFS + IndexedDB storage layer
-- Service Worker app-shell caching + asset pack download manager (with versioning)
+- Service Worker app-shell caching
+- Asset pack framework (manifest types + install records + cache helpers; defer real packs/download UI)
 - Media import (camera capture + file picker)
 - Basic video preview (native video playback + overlays)
 - Project save/load
@@ -233,12 +234,14 @@ interface StyleVariant {
 
 - Text overlay system (add, position, style, animate)
 - Subtitle lines (manual) + a few popular subtitle style presets
+- Font + sticker packs: download/install UI + versioning + offline cache
 
 ### M5: Audio
 
 - Bundled music + SFX library
 - Volume controls + fades
 - (Optional) voiceover recording
+- Music + SFX packs: download/install UI + versioning + offline cache
 
 ### M6: Export & Polish
 
@@ -246,6 +249,7 @@ interface StyleVariant {
 - Export presets (platform-specific)
 - Web Share API integration
 - Rich asset bundle finalization
+- Asset pack upgrades/polish (migrations, eviction handling, storage prompts)
 
 ---
 
