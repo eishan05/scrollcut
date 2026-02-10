@@ -5,7 +5,9 @@ import { importMediaFile } from '../services/media-import'
 import type { Clip } from '../types/project'
 
 export function useMediaImport() {
-  const { setImporting, setImportProgress, addAsset } = useMediaStore()
+  const setImporting = useMediaStore((s) => s.setImporting)
+  const setImportProgress = useMediaStore((s) => s.setImportProgress)
+  const addAsset = useMediaStore((s) => s.addAsset)
   const currentProject = useProjectStore((s) => s.currentProject)
   const addClip = useProjectStore((s) => s.addClip)
 

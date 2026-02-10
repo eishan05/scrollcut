@@ -16,7 +16,7 @@ export function useAutoSave(): void {
     )
 
     // Periodic safety-net save
-    startPeriodicSave(() => useProjectStore.getState().currentProject)
+    startPeriodicSave()
 
     // Save on visibility change (iOS backgrounding) and pagehide
     const handleVisibilityChange = () => {

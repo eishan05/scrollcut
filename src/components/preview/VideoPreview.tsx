@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useProjectStore } from '../../stores/project-store'
 import { useMediaStore } from '../../stores/media-store'
-import { readMediaFile } from '../../storage/media-storage'
+import { getMediaFile } from '../../storage/media-storage'
 import { useVideoPreview } from '../../hooks/use-video-preview'
 import { AspectRatioContainer } from './AspectRatioContainer'
 
@@ -21,11 +21,10 @@ export function VideoPreview() {
     let revoked = false
 
     if (activeAsset) {
-      readMediaFile(activeAsset.opfsPath)
-        .then((buffer) => {
+      getMediaFile(activeAsset.opfsPath)
+        .then((file) => {
           if (revoked) return
-          const blob = new Blob([buffer], { type: activeAsset.mimeType })
-          setVideoUrl(URL.createObjectURL(blob))
+          setVideoUrl(URL.createObjectURL(file))
         })
         .catch(() => {
           if (!revoked) setVideoUrl(null)

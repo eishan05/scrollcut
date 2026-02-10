@@ -1,4 +1,5 @@
 import { getDB } from './db'
+import { deleteMediaFile, deleteThumbnail } from './media-storage'
 import type { Project } from '../types/project'
 import type { MediaAsset } from '../types/media'
 
@@ -14,15 +15,24 @@ export async function loadProject(id: string): Promise<Project | undefined> {
 
 export async function deleteProject(id: string): Promise<void> {
   const db = await getDB()
+
+  // Best-effort cleanup of OPFS files.
+  const assetsToCleanup = await db.getAllFromIndex('mediaAssets', 'by-project', id)
+
   const tx = db.transaction(['projects', 'mediaAssets'], 'readwrite')
   // Delete project
   await tx.objectStore('projects').delete(id)
   // Delete associated media assets
-  const assets = await tx.objectStore('mediaAssets').index('by-project').getAllKeys(id)
-  for (const key of assets) {
+  const assetKeys = await tx.objectStore('mediaAssets').index('by-project').getAllKeys(id)
+  for (const key of assetKeys) {
     await tx.objectStore('mediaAssets').delete(key)
   }
   await tx.done
+
+  for (const asset of assetsToCleanup) {
+    await deleteMediaFile(asset.opfsPath)
+    if (asset.thumbnailPath) await deleteThumbnail(asset.thumbnailPath)
+  }
 }
 
 export async function listProjects(): Promise<Project[]> {

@@ -40,6 +40,10 @@ export async function importMediaFile(
   projectId: string,
   onProgress?: (progress: number) => void,
 ): Promise<ImportResult> {
+  if (file.type && !file.type.startsWith('video/')) {
+    throw new Error('Only video imports are supported right now')
+  }
+
   const id = crypto.randomUUID()
   const ext = getExtension(file.name)
 

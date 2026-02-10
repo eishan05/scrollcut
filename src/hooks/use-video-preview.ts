@@ -102,10 +102,15 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
   const play = useCallback(async () => {
     const video = videoRef.current
     if (!video) return
-    await video.play()
-    setPlaying(true)
-    startLoop()
-  }, [startLoop])
+    try {
+      await video.play()
+      setPlaying(true)
+      startLoop()
+    } catch {
+      stopLoop()
+      setPlaying(false)
+    }
+  }, [startLoop, stopLoop])
 
   const pause = useCallback(() => {
     const video = videoRef.current
@@ -126,6 +131,29 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
   // Cleanup on unmount
   useEffect(() => {
     return () => stopLoop()
+  }, [stopLoop])
+
+  // Keep state in sync with media element lifecycle.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const handleEnded = () => {
+      stopLoop()
+      setPlaying(false)
+    }
+
+    const handleError = () => {
+      stopLoop()
+      setPlaying(false)
+    }
+
+    video.addEventListener('ended', handleEnded)
+    video.addEventListener('error', handleError)
+    return () => {
+      video.removeEventListener('ended', handleEnded)
+      video.removeEventListener('error', handleError)
+    }
   }, [stopLoop])
 
   return {

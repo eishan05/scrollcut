@@ -9,8 +9,10 @@ import { SettingsPanel } from '../settings/SettingsPanel'
 import { MediaImportSheet } from '../import/MediaImportSheet'
 import { NewProjectSheet } from '../project/NewProjectSheet'
 import { ImportProgress } from '../import/ImportProgress'
-import { readThumbnail } from '../../storage/media-storage'
+import { readThumbnail, deleteMediaFile, deleteThumbnail } from '../../storage/media-storage'
 import type { MediaAsset } from '../../types/media'
+import { deleteMediaAsset } from '../../storage/project-persistence'
+import { AssetPacksSheet } from '../settings/AssetPacksSheet'
 
 function AssetThumb({ asset }: { asset: MediaAsset }) {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
@@ -102,8 +104,15 @@ function EditorContent() {
                   )}
                 </div>
                 <button
-                  onClick={() => {
-                    if (clip) removeClip(clip.id)
+                  onClick={async () => {
+                    const clipsToRemove = clips.filter((c) => c.mediaAssetId === asset.id)
+                    for (const c of clipsToRemove) removeClip(c.id)
+
+                    // Delete persistent records/files so reload doesn't resurrect assets.
+                    await deleteMediaAsset(asset.id)
+                    await deleteMediaFile(asset.opfsPath)
+                    if (asset.thumbnailPath) await deleteThumbnail(asset.thumbnailPath)
+
                     removeAsset(asset.id)
                   }}
                   className="text-xs text-red-400 active:text-red-300 shrink-0 px-2"
@@ -151,6 +160,7 @@ export function AppShell() {
       {/* Sheets (portals) */}
       <MediaImportSheet />
       <NewProjectSheet />
+      <AssetPacksSheet />
     </div>
   )
 }

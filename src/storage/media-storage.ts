@@ -19,6 +19,10 @@ export async function readMediaFile(path: string): Promise<ArrayBuffer> {
   return opfs.read(path)
 }
 
+export async function getMediaFile(path: string): Promise<File> {
+  return opfs.file(path)
+}
+
 export async function deleteMediaFile(path: string): Promise<void> {
   try {
     await opfs.delete(path)

@@ -1,6 +1,7 @@
 import { getDB } from './db'
 import { saveProject } from './project-persistence'
 import type { Project } from '../types/project'
+import { useProjectStore } from '../stores/project-store'
 
 const AUTO_SAVE_DEBOUNCE = 2000
 const AUTO_SAVE_PERIODIC = 30000
@@ -22,24 +23,37 @@ async function writeAutoSave(project: Project): Promise<void> {
 async function performSave(project: Project): Promise<void> {
   await saveProject(project)
   await writeAutoSave(project)
+
+  // Only clear dirty if we saved the latest version still in the store.
+  const state = useProjectStore.getState()
+  if (state.currentProject?.id === project.id && state.currentProject.updatedAt === project.updatedAt) {
+    state.markSaved()
+  }
 }
 
 export function scheduleSave(project: Project): void {
   lastProject = project
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(async () => {
-    if (lastProject) {
+    debounceTimer = null
+    if (!lastProject) return
+    try {
       await performSave(lastProject)
+    } catch (err) {
+      console.error('[auto-save] debounced save failed', err)
     }
   }, AUTO_SAVE_DEBOUNCE)
 }
 
-export function startPeriodicSave(getProject: () => Project | null): void {
+export function startPeriodicSave(): void {
   stopPeriodicSave()
   periodicTimer = setInterval(async () => {
-    const project = getProject()
-    if (project) {
-      await performSave(project)
+    const { currentProject, isDirty } = useProjectStore.getState()
+    if (!currentProject || !isDirty) return
+    try {
+      await performSave(currentProject)
+    } catch (err) {
+      console.error('[auto-save] periodic save failed', err)
     }
   }, AUTO_SAVE_PERIODIC)
 }
@@ -52,8 +66,15 @@ export function stopPeriodicSave(): void {
 }
 
 export async function saveImmediately(project: Project): Promise<void> {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  await performSave(project)
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+  try {
+    await performSave(project)
+  } catch (err) {
+    console.error('[auto-save] immediate save failed', err)
+  }
 }
 
 export async function recoverAutoSave(): Promise<Project | null> {

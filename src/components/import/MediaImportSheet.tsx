@@ -61,28 +61,10 @@ export function MediaImportSheet() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="video/*,image/*"
+          accept="video/*"
           onChange={handleFileChange}
           className="hidden"
         />
-
-        <button
-          onClick={() => {
-            const input = document.createElement('input')
-            input.type = 'file'
-            input.accept = 'image/*'
-            input.capture = 'environment'
-            input.onchange = (e) => {
-              const file = (e.target as HTMLInputElement).files?.[0]
-              if (file) importFile(file).then(closeSheet).catch(console.error)
-            }
-            input.click()
-          }}
-          disabled={isImporting}
-          className="w-full py-3 bg-slate-700 text-white rounded-xl text-sm font-medium active:bg-slate-600 disabled:opacity-50"
-        >
-          Take Photo
-        </button>
       </div>
     </BottomSheet>
   )

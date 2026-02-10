@@ -36,8 +36,19 @@ function send(type: string, path: string, data?: ArrayBuffer): Promise<{ ok: boo
       msg.data = data
       transfer.push(data)
     }
-    getWorker().postMessage(msg, { transfer })
+    // Use Transferable[] overload for Safari compatibility.
+    getWorker().postMessage(msg, transfer)
   })
+}
+
+async function getFileParentAndName(path: string): Promise<{ dir: FileSystemDirectoryHandle; name: string }> {
+  const parts = path.split('/').filter(Boolean)
+  const name = parts.pop()!
+  let dir = await navigator.storage.getDirectory()
+  for (const part of parts) {
+    dir = await dir.getDirectoryHandle(part, { create: false })
+  }
+  return { dir, name }
 }
 
 export const opfs = {
@@ -61,5 +72,11 @@ export const opfs = {
   async mkdir(path: string): Promise<void> {
     const result = await send('mkdir', path)
     if (!result.ok) throw new Error(result.error ?? 'OPFS mkdir failed')
+  },
+
+  async file(path: string): Promise<File> {
+    const { dir, name } = await getFileParentAndName(path)
+    const handle = await dir.getFileHandle(name)
+    return handle.getFile()
   },
 }
