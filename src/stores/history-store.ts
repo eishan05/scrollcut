@@ -114,19 +114,25 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
   commitMutation: () => {
     const state = get()
     const { _beforeSnapshot } = state
-
-    if (_beforeSnapshot) {
-      // Push the before state first if this is the first snapshot
-      if (state.snapshots.length === 0) {
-        get().pushSnapshot(_beforeSnapshot)
-      }
-    }
-
     const project = useProjectStore.getState().currentProject
-    if (project) {
-      get().pushSnapshot(project)
+
+    if (!_beforeSnapshot || !project) {
+      set({ _beforeSnapshot: null })
+      return
     }
 
+    // No-op mutation: avoid adding duplicate snapshots.
+    if (project.updatedAt === _beforeSnapshot.updatedAt) {
+      set({ _beforeSnapshot: null })
+      return
+    }
+
+    // Push the before state first if this is the first snapshot
+    if (state.snapshots.length === 0) {
+      get().pushSnapshot(_beforeSnapshot)
+    }
+
+    get().pushSnapshot(project)
     set({ _beforeSnapshot: null })
   },
 

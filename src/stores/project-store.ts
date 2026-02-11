@@ -33,8 +33,10 @@ interface ProjectState {
 function mutateProject(state: ProjectState, updater: (project: Project) => Partial<Project>): Partial<ProjectState> {
   if (!state.currentProject) return {}
   const updates = updater(state.currentProject)
+  // Avoid missing history deltas when multiple mutations happen within the same millisecond.
+  const nextUpdatedAt = Math.max(Date.now(), state.currentProject.updatedAt + 1)
   return {
-    currentProject: { ...state.currentProject, ...updates, updatedAt: Date.now() },
+    currentProject: { ...state.currentProject, ...updates, updatedAt: nextUpdatedAt },
     isDirty: true,
   }
 }

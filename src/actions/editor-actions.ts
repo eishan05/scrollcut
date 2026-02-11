@@ -10,6 +10,7 @@ import { nextClipOrder, splitClipAt } from '../utils/clip-operations'
 import { newId } from '../utils/id'
 import type { ImportResult, MediaAsset } from '../types/media'
 import type { Clip } from '../types/project'
+import type { TrimState, DragState } from '../stores/timeline-store'
 
 export async function importMediaAndAppendClip(file: File): Promise<ImportResult> {
   const project = useProjectStore.getState().currentProject
@@ -147,4 +148,85 @@ export function splitClipAtPlayhead(clipId: string): void {
 // Convenience: used for callers that already have an asset object.
 export async function removeAsset(asset: MediaAsset): Promise<void> {
   await removeMediaAssetAndAssociatedClips(asset.id)
+}
+
+export function beginTrim(clipId: string, edge: TrimState['edge'], startX: number): void {
+  const project = useProjectStore.getState().currentProject
+  if (!project) return
+  const clip = project.timeline.clips.find((c) => c.id === clipId)
+  if (!clip) return
+
+  useHistoryStore.getState().captureBeforeMutation()
+  useTimelineStore.getState().setTrimState({
+    clipId,
+    edge,
+    originalStart: clip.trim.start,
+    originalDuration: clip.trim.duration,
+    startX,
+  })
+}
+
+export function updateTrim(clipId: string, trim: Clip['trim']): void {
+  useProjectStore.getState().updateClip(clipId, { trim })
+}
+
+export function commitTrim(): void {
+  useTimelineStore.getState().setTrimState(null)
+  useHistoryStore.getState().commitMutation()
+}
+
+export function abortTrim(): void {
+  useTimelineStore.getState().setTrimState(null)
+  useHistoryStore.getState().abortMutation()
+}
+
+export function beginDrag(clipId: string, startX: number, startInsertIndex: number): void {
+  const project = useProjectStore.getState().currentProject
+  if (!project) return
+  const clip = project.timeline.clips.find((c) => c.id === clipId)
+  if (!clip) return
+
+  useHistoryStore.getState().captureBeforeMutation()
+  useTimelineStore.getState().setDragState({
+    clipId,
+    startOrder: clip.order,
+    currentInsertIndex: startInsertIndex,
+    startX,
+    currentX: startX,
+  })
+}
+
+export function updateDrag(drag: DragState): void {
+  useTimelineStore.getState().setDragState(drag)
+}
+
+export function commitDrag(): boolean {
+  const dragState = useTimelineStore.getState().dragState
+  if (!dragState) return false
+
+  const project = useProjectStore.getState().currentProject
+  const clips = project?.timeline.clips ?? []
+  const sorted = [...clips].sort((a, b) => a.order - b.order)
+  const dragIdx = sorted.findIndex((c) => c.id === dragState.clipId)
+
+  let changed = false
+  if (dragIdx !== -1 && dragState.currentInsertIndex !== dragIdx) {
+    const clip = sorted.splice(dragIdx, 1)[0]
+    const insertAt = dragState.currentInsertIndex > dragIdx
+      ? dragState.currentInsertIndex - 1
+      : dragState.currentInsertIndex
+    sorted.splice(insertAt, 0, clip)
+
+    useProjectStore.getState().reorderClips(sorted)
+    changed = true
+  }
+
+  useTimelineStore.getState().setDragState(null)
+  useHistoryStore.getState().commitMutation()
+  return changed
+}
+
+export function abortDrag(): void {
+  useTimelineStore.getState().setDragState(null)
+  useHistoryStore.getState().abortMutation()
 }

@@ -1,11 +1,11 @@
 import { useCallback, useRef } from 'react'
 import { useTimelineStore } from '../stores/timeline-store'
 import { useProjectStore } from '../stores/project-store'
-import { useHistoryStore } from '../stores/history-store'
 import { pixelToTime, hitTestClip, hitTestTrimHandle, computeClipLayouts } from '../utils/timeline-math'
 import { clampTrim } from '../utils/clip-operations'
 import { useMediaStore } from '../stores/media-store'
 import { RULER_HEIGHT, TRACK_TOP, TRACK_HEIGHT, HANDLE_WIDTH } from '../utils/timeline-renderer'
+import { beginDrag, beginTrim, commitDrag, commitTrim, abortDrag, abortTrim, updateDrag, updateTrim } from '../actions/editor-actions'
 
 interface PointerState {
   startX: number
@@ -96,18 +96,8 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
       gestureMode.current = 'trim'
       canvas.setPointerCapture(e.pointerId)
       hitInfo.current = { clipId: trimHit.clipId, region: 'trim', worldX }
-      const clip = clips.find((c) => c.id === trimHit.clipId)
-      if (clip) {
-        useHistoryStore.getState().captureBeforeMutation()
-        useTimelineStore.getState().setTrimState({
-          clipId: trimHit.clipId,
-          edge: trimHit.edge,
-          originalStart: clip.trim.start,
-          originalDuration: clip.trim.duration,
-          startX: x,
-        })
-        vibrate(10)
-      }
+      beginTrim(trimHit.clipId, trimHit.edge, x)
+      vibrate(10)
       return
     }
 
@@ -141,16 +131,9 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
         const currentPps = useTimelineStore.getState().pixelsPerSecond
         const clip = currentClips.find((c) => c.id === clipHit.clipId)
         if (clip) {
-          useHistoryStore.getState().captureBeforeMutation()
           const currentLayouts = computeClipLayouts(currentClips, currentPps)
           const layoutIdx = currentLayouts.findIndex((l) => l.clipId === clipHit.clipId)
-          useTimelineStore.getState().setDragState({
-            clipId: clipHit.clipId,
-            startOrder: clip.order,
-            currentInsertIndex: layoutIdx,
-            startX: x,
-            currentX: x,
-          })
+          beginDrag(clipHit.clipId, x, layoutIdx)
         }
       }, LONG_PRESS_MS)
     }
@@ -244,7 +227,7 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
         }
 
         newTrim = clampTrim(newTrim, mediaDuration)
-        useProjectStore.getState().updateClip(trimState.clipId, { trim: newTrim })
+        updateTrim(trimState.clipId, newTrim)
         break
       }
 
@@ -266,7 +249,7 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
           }
         }
 
-        store.setDragState({
+        updateDrag({
           ...dragState,
           currentX: x,
           currentInsertIndex: insertIdx,
@@ -310,32 +293,15 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
         break
 
       case 'trim':
-        store.setTrimState(null)
-        useHistoryStore.getState().commitMutation()
+        commitTrim()
         break
 
       case 'drag': {
-        const dragState = store.dragState
-        if (dragState) {
-          const clips = useProjectStore.getState().currentProject?.timeline.clips ?? []
-          const sorted = [...clips].sort((a, b) => a.order - b.order)
-          const dragIdx = sorted.findIndex((c) => c.id === dragState.clipId)
-
-          if (dragIdx !== -1 && dragState.currentInsertIndex !== dragIdx) {
-            const clip = sorted.splice(dragIdx, 1)[0]
-            const insertAt = dragState.currentInsertIndex > dragIdx
-              ? dragState.currentInsertIndex - 1
-              : dragState.currentInsertIndex
-            sorted.splice(insertAt, 0, clip)
-
-            const reordered = sorted.map((c, i) => ({ ...c, order: i }))
-            useProjectStore.getState().reorderClips(reordered)
-          }
-
-          useHistoryStore.getState().commitMutation()
+        const hadState = Boolean(store.dragState)
+        if (hadState) {
+          commitDrag()
           vibrate(10)
         }
-        store.setDragState(null)
         break
       }
 
@@ -359,12 +325,10 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
 
     const store = useTimelineStore.getState()
     if (gestureMode.current === 'trim') {
-      store.setTrimState(null)
-      useHistoryStore.getState().abortMutation()
+      abortTrim()
     }
     if (gestureMode.current === 'drag') {
-      store.setDragState(null)
-      useHistoryStore.getState().abortMutation()
+      abortDrag()
     }
     store.setIsScrubbing(false)
 
