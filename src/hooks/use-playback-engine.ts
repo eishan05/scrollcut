@@ -85,8 +85,18 @@ export function usePlaybackEngine() {
   const setSourceAndSeek = useCallback((url: string, seekTime: number) => {
     pendingSeekTokenRef.current++
     pendingSeekTimeRef.current = seekTime
+    const video = videoRef.current
+
+    // Important: if we're switching between clips that use the same underlying
+    // media, the blob URL (and thus <video src>) won't change. In that case,
+    // the "videoUrl changed" effect won't run, so we must apply the seek now.
+    if (video && (video.currentSrc === url || video.src === url)) {
+      applyPendingSeek()
+      return
+    }
+
     setVideoUrl(url)
-  }, [])
+  }, [applyPendingSeek])
 
   // Apply pending seek after the <video> src updates.
   useEffect(() => {
@@ -172,25 +182,44 @@ export function usePlaybackEngine() {
             if (nextLayout) {
               const nextClip = clips.find((c) => c.id === nextLayout.clipId)
               if (nextClip) {
-                video.pause()
-                loadClipVideo(nextClip.mediaAssetId).then((url) => {
-                  if (url && playingRef.current) {
-                    setSourceAndSeek(url, nextClip.trim.start)
-                    currentClipIdRef.current = nextClip.id
-                    requestAnimationFrame(() => {
-                      const v = videoRef.current
-                      if (v) {
-                        const token = pendingSeekTokenRef.current
-                        const start = () => {
-                          if (pendingSeekTokenRef.current !== token) return
-                          v.play().catch(() => {})
-                        }
-                        v.addEventListener('loadedmetadata', start, { once: true })
-                        if (v.readyState >= 1 && v.currentSrc === url) start()
-                      }
-                    })
+                // If the next clip is the same underlying media, do a soft seek
+                // without pausing or swapping sources. This reduces perceptible gaps.
+                if (nextClip.mediaAssetId === clip.mediaAssetId) {
+                  currentClipIdRef.current = nextClip.id
+                  pendingSeekTokenRef.current++
+                  pendingSeekTimeRef.current = nextClip.trim.start
+                  try {
+                    // Prefer fastSeek when available (Chrome).
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const anyVideo = video as any
+                    if (typeof anyVideo.fastSeek === 'function') anyVideo.fastSeek(nextClip.trim.start)
+                    else video.currentTime = nextClip.trim.start
+                  } catch {
+                    // noop
                   }
-                })
+                  // Keep playing (seek may briefly stall while decoding).
+                  video.play().catch(() => {})
+                } else {
+                  video.pause()
+                  loadClipVideo(nextClip.mediaAssetId).then((url) => {
+                    if (url && playingRef.current) {
+                      setSourceAndSeek(url, nextClip.trim.start)
+                      currentClipIdRef.current = nextClip.id
+                      requestAnimationFrame(() => {
+                        const v = videoRef.current
+                        if (v) {
+                          const token = pendingSeekTokenRef.current
+                          const start = () => {
+                            if (pendingSeekTokenRef.current !== token) return
+                            v.play().catch(() => {})
+                          }
+                          v.addEventListener('loadedmetadata', start, { once: true })
+                          if (v.readyState >= 1 && v.currentSrc === url) start()
+                        }
+                      })
+                    }
+                  })
+                }
               }
             } else {
               // End of timeline
