@@ -267,7 +267,12 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
         position: 'sticky',
         left: 0,
         touchAction: 'none',
+        // Prevent mobile long-press callout / selection (can cause pointercancel and break reordering).
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
       }}
+      onContextMenu={(e) => e.preventDefault()}
       onPointerDown={gestures.onPointerDown}
       onPointerMove={gestures.onPointerMove}
       onPointerUp={gestures.onPointerUp}

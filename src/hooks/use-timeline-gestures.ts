@@ -12,6 +12,7 @@ interface PointerState {
   startY: number
   startTime: number
   pointerId: number
+  pointerType: React.PointerEvent<HTMLCanvasElement>['pointerType']
   lastX: number
 }
 
@@ -26,6 +27,7 @@ interface HitInfo {
 
 const LONG_PRESS_MS = 500
 const DRAG_THRESHOLD = 8
+const DRAG_THRESHOLD_TOUCH = 14
 
 export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivElement | null>) {
   const pointers = useRef(new Map<number, PointerState>())
@@ -48,6 +50,7 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
   }
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerType === 'touch') e.preventDefault()
     const canvas = e.currentTarget
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
@@ -58,6 +61,7 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
       startY: y,
       startTime: Date.now(),
       pointerId: e.pointerId,
+      pointerType: e.pointerType,
       lastX: x,
     })
 
@@ -120,11 +124,25 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
 
     // Start long-press timer for clip reorder
     if (clipHit) {
+      // Capture immediately so drag/up continues even if the finger moves off the canvas.
+      try {
+        canvas.setPointerCapture(e.pointerId)
+      } catch {
+        // ignore
+      }
       clearLongPress()
+      const pointerId = e.pointerId
+      const startX = x
       longPressTimer.current = setTimeout(() => {
         if (gestureMode.current !== 'pending') return // already scrolling
         gestureMode.current = 'drag'
-        canvas.setPointerCapture(e.pointerId)
+        // On some mobile browsers, calling setPointerCapture asynchronously can throw.
+        // Reorder should still work without capture as long as we keep receiving moves.
+        try {
+          canvas.setPointerCapture(pointerId)
+        } catch {
+          // ignore
+        }
         vibrate(20)
 
         const currentClips = useProjectStore.getState().currentProject?.timeline.clips ?? []
@@ -133,7 +151,7 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
         if (clip) {
           const currentLayouts = computeClipLayouts(currentClips, currentPps)
           const layoutIdx = currentLayouts.findIndex((l) => l.clipId === clipHit.clipId)
-          beginDrag(clipHit.clipId, x, layoutIdx)
+          beginDrag(clipHit.clipId, startX, layoutIdx)
         }
       }, LONG_PRESS_MS)
     }
@@ -164,7 +182,8 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
     switch (gestureMode.current) {
       case 'pending': {
         // Once moved beyond threshold, decide: scroll
-        if (Math.abs(dx) > DRAG_THRESHOLD) {
+        const threshold = ptr.pointerType === 'touch' ? DRAG_THRESHOLD_TOUCH : DRAG_THRESHOLD
+        if (Math.abs(dx) > threshold) {
           clearLongPress()
           gestureMode.current = 'scroll'
           try {

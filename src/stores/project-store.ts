@@ -3,7 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import type { Project, Clip, TextOverlay } from '../types/project'
 import type { AspectRatio } from '../types/common'
 import { newId } from '../utils/id'
-import { renumberClipOrders } from '../utils/clip-operations'
+import { normalizeClipOrders, renumberClipOrders } from '../utils/clip-operations'
 
 interface ProjectState {
   currentProject: Project | null
@@ -48,7 +48,7 @@ export const useProjectStore = create<ProjectState>()(
 
     setProject: (project) => set({
       currentProject: project
-        ? { ...project, timeline: { ...project.timeline, clips: renumberClipOrders(project.timeline.clips) } }
+        ? { ...project, timeline: { ...project.timeline, clips: normalizeClipOrders(project.timeline.clips) } }
         : null,
       isDirty: false,
     }),

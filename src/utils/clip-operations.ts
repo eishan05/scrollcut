@@ -9,6 +9,10 @@ function stableClipSort(a: Clip, b: Clip): number {
   return a.id.localeCompare(b.id)
 }
 
+export function sortClipsByOrder(clips: Clip[]): Clip[] {
+  return [...clips].sort(stableClipSort)
+}
+
 export function splitClipAt(
   clip: Clip,
   splitTimeLocal: number,
@@ -40,8 +44,13 @@ export function splitClipAt(
 }
 
 export function renumberClipOrders(clips: Clip[]): Clip[] {
-  const sorted = [...clips].sort(stableClipSort)
-  return sorted.map((clip, i) => ({ ...clip, order: i }))
+  // IMPORTANT: preserve the provided array order (used by drag-and-drop reordering).
+  return clips.map((clip, i) => ({ ...clip, order: i }))
+}
+
+// For ingesting unknown clip lists (e.g. loaded from disk) where `order` may be unsorted or collide.
+export function normalizeClipOrders(clips: Clip[]): Clip[] {
+  return renumberClipOrders(sortClipsByOrder(clips))
 }
 
 export function nextClipOrder(clips: Clip[]): number {

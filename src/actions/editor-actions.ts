@@ -6,7 +6,7 @@ import { importMediaFile } from '../services/media-import'
 import { deleteMediaAsset } from '../storage/project-persistence'
 import { deleteMediaFile, deleteThumbnail } from '../storage/media-storage'
 import { computeClipLayouts } from '../utils/timeline-math'
-import { nextClipOrder, splitClipAt } from '../utils/clip-operations'
+import { nextClipOrder, sortClipsByOrder, splitClipAt } from '../utils/clip-operations'
 import { newId } from '../utils/id'
 import type { ImportResult, MediaAsset } from '../types/media'
 import type { Clip } from '../types/project'
@@ -63,8 +63,9 @@ export async function removeMediaAssetAndAssociatedClips(assetId: string): Promi
   const asset = useMediaStore.getState().assets.find((a) => a.id === assetId) ?? null
 
   const clips = project?.timeline.clips ?? []
-  const remainingClips = clips.filter((c) => c.mediaAssetId !== assetId)
-  const removedClipIds = new Set(clips.filter((c) => c.mediaAssetId === assetId).map((c) => c.id))
+  const sorted = sortClipsByOrder(clips)
+  const remainingClips = sorted.filter((c) => c.mediaAssetId !== assetId)
+  const removedClipIds = new Set(sorted.filter((c) => c.mediaAssetId === assetId).map((c) => c.id))
 
   if (removedClipIds.size > 0) {
     useHistoryStore.getState().captureBeforeMutation()
@@ -136,8 +137,14 @@ export function splitClipAtPlayhead(clipId: string): void {
   useHistoryStore.getState().captureBeforeMutation()
 
   const [first, second] = result
-  const next = clips.filter((c) => c.id !== clipId)
-  next.push(first, second)
+  const sorted = sortClipsByOrder(clips)
+  const idx = sorted.findIndex((c) => c.id === clipId)
+  if (idx === -1) {
+    useHistoryStore.getState().abortMutation()
+    return
+  }
+  const next = [...sorted]
+  next.splice(idx, 1, first, second)
 
   useProjectStore.getState().reorderClips(next)
   useTimelineStore.getState().selectClip(first.id)
