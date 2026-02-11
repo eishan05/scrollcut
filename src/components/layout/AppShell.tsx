@@ -145,33 +145,36 @@ export function AppShell() {
   const hasProject = useProjectStore((s) => s.currentProject !== null)
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Preview area — top ~45% when in editor mode */}
-      {activePanel === 'editor' && hasProject && (
-        <div className="shrink-0 p-3 pt-[env(safe-area-inset-top)]">
-          <VideoPreview />
-        </div>
-      )}
-
-      {/* Timeline — 120px horizontal scroll strip */}
-      {activePanel === 'editor' && hasProject && (
-        <div className="shrink-0">
-          <Timeline />
-        </div>
-      )}
-
-      {/* Content area */}
-      <main className="flex-1 overflow-y-auto p-4">
-        {activePanel === 'projects' && <ProjectList />}
-        {activePanel === 'editor' && hasProject && <EditorContent />}
-        {activePanel === 'editor' && !hasProject && (
-          <div className="text-center py-12">
-            <p className="text-slate-500 text-sm">No project open</p>
-            <p className="text-slate-600 text-xs mt-1">Go to Projects to create or open one</p>
+    <div className="h-full flex flex-col min-h-0">
+      {/* Scroll container: on small screens the preview can be tall, so let the whole page scroll. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Preview area */}
+        {activePanel === 'editor' && hasProject && (
+          <div className="shrink-0 p-3 pt-[env(safe-area-inset-top)]">
+            <VideoPreview />
           </div>
         )}
-        {activePanel === 'settings' && <SettingsPanel />}
-      </main>
+
+        {/* Timeline — 120px horizontal scroll strip */}
+        {activePanel === 'editor' && hasProject && (
+          <div className="shrink-0">
+            <Timeline />
+          </div>
+        )}
+
+        {/* Content area */}
+        <main className="p-4">
+          {activePanel === 'projects' && <ProjectList />}
+          {activePanel === 'editor' && hasProject && <EditorContent />}
+          {activePanel === 'editor' && !hasProject && (
+            <div className="text-center py-12">
+              <p className="text-slate-500 text-sm">No project open</p>
+              <p className="text-slate-600 text-xs mt-1">Go to Projects to create or open one</p>
+            </div>
+          )}
+          {activePanel === 'settings' && <SettingsPanel />}
+        </main>
+      </div>
 
       {/* Bottom nav */}
       <BottomNav />

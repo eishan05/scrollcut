@@ -1,5 +1,6 @@
 import type { Clip } from '../types/project'
 import type { TimeRange } from '../types/common'
+import { newId } from './id'
 
 export function splitClipAt(
   clip: Clip,
@@ -9,7 +10,7 @@ export function splitClipAt(
   if (splitTimeLocal <= 0 || splitTimeLocal >= clip.trim.duration) return null
 
   const firstClip: Clip = {
-    id: crypto.randomUUID(),
+    id: newId('clip'),
     mediaAssetId: clip.mediaAssetId,
     trim: {
       start: clip.trim.start,
@@ -19,7 +20,7 @@ export function splitClipAt(
   }
 
   const secondClip: Clip = {
-    id: crypto.randomUUID(),
+    id: newId('clip'),
     mediaAssetId: clip.mediaAssetId,
     trim: {
       start: clip.trim.start + splitTimeLocal,

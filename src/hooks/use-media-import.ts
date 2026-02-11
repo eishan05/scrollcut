@@ -3,6 +3,7 @@ import { useMediaStore } from '../stores/media-store'
 import { useProjectStore } from '../stores/project-store'
 import { importMediaFile } from '../services/media-import'
 import type { Clip } from '../types/project'
+import { newId } from '../utils/id'
 
 export function useMediaImport() {
   const setImporting = useMediaStore((s) => s.setImporting)
@@ -25,7 +26,7 @@ export function useMediaImport() {
 
       // Auto-create a clip on the timeline for the imported asset
       const clip: Clip = {
-        id: crypto.randomUUID(),
+        id: newId('clip'),
         mediaAssetId: result.asset.id,
         trim: { start: 0, duration: result.asset.duration },
         order: currentProject.timeline.clips.length,

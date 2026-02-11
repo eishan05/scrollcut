@@ -44,7 +44,7 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
     const assets = useMediaStore.getState().assets
     for (const asset of assets) {
       if (!videoUrlsRef.current.has(asset.id)) {
-        getMediaFile(asset.opfsPath)
+        getMediaFile(asset.opfsPath, { fileName: asset.fileName, mimeType: asset.mimeType })
           .then((file) => {
             const url = URL.createObjectURL(file)
             videoUrlsRef.current.set(asset.id, url)
@@ -71,7 +71,7 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
 
       for (const asset of state.assets) {
         if (!videoUrlsRef.current.has(asset.id)) {
-          getMediaFile(asset.opfsPath)
+          getMediaFile(asset.opfsPath, { fileName: asset.fileName, mimeType: asset.mimeType })
             .then((file) => {
               const url = URL.createObjectURL(file)
               videoUrlsRef.current.set(asset.id, url)

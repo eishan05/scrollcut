@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { Project, Clip, TextOverlay } from '../types/project'
 import type { AspectRatio } from '../types/common'
+import { newId } from '../utils/id'
 
 interface ProjectState {
   currentProject: Project | null
@@ -46,7 +47,7 @@ export const useProjectStore = create<ProjectState>()(
 
     createProject: (name, aspectRatio) => {
       const project: Project = {
-        id: crypto.randomUUID(),
+        id: newId('project'),
         name,
         aspectRatio,
         timeline: { clips: [], overlays: [] },

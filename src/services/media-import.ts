@@ -2,6 +2,7 @@ import type { MediaAsset, ImportResult } from '../types/media'
 import { writeMediaFile, writeThumbnail } from '../storage/media-storage'
 import { saveMediaAsset } from '../storage/project-persistence'
 import { extractThumbnail } from './thumbnail'
+import { newId } from '../utils/id'
 
 function getExtension(fileName: string): string {
   const parts = fileName.split('.')
@@ -44,7 +45,7 @@ export async function importMediaFile(
     throw new Error('Only video imports are supported right now')
   }
 
-  const id = crypto.randomUUID()
+  const id = newId('asset')
   const ext = getExtension(file.name)
 
   onProgress?.(0.1)
@@ -53,8 +54,8 @@ export async function importMediaFile(
   const buffer = await file.arrayBuffer()
   onProgress?.(0.3)
 
-  // Write to OPFS
-  const opfsPath = await writeMediaFile(projectId, id, ext, buffer)
+  // Write to storage (OPFS when available; IndexedDB fallback on insecure contexts like Android LAN dev).
+  const opfsPath = await writeMediaFile(projectId, id, ext, buffer, file.type || 'video/mp4')
   onProgress?.(0.5)
 
   // Extract metadata

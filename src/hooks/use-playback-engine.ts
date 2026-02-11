@@ -54,7 +54,7 @@ export function usePlaybackEngine() {
     if (!asset) return null
 
     try {
-      const file = await getMediaFile(asset.opfsPath)
+      const file = await getMediaFile(asset.opfsPath, { fileName: asset.fileName, mimeType: asset.mimeType })
       const url = URL.createObjectURL(file)
       urlCacheRef.current.set(mediaAssetId, url)
       return url
