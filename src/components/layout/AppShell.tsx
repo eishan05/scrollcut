@@ -10,12 +10,12 @@ import { SettingsPanel } from '../settings/SettingsPanel'
 import { MediaImportSheet } from '../import/MediaImportSheet'
 import { NewProjectSheet } from '../project/NewProjectSheet'
 import { ImportProgress } from '../import/ImportProgress'
-import { readThumbnail, deleteMediaFile, deleteThumbnail } from '../../storage/media-storage'
+import { readThumbnail } from '../../storage/media-storage'
 import type { MediaAsset } from '../../types/media'
-import { deleteMediaAsset } from '../../storage/project-persistence'
 import { AssetPacksSheet } from '../settings/AssetPacksSheet'
 import { Timeline } from '../timeline/Timeline'
 import { ClipProperties } from '../timeline/ClipProperties'
+import { removeMediaAssetAndAssociatedClips } from '../../actions/editor-actions'
 
 function AssetThumb({ asset }: { asset: MediaAsset }) {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
@@ -58,8 +58,6 @@ function EditorContent() {
   const openSheet = useUIStore((s) => s.openSheet)
   const clips = useProjectStore((s) => s.currentProject?.timeline.clips) ?? []
   const assets = useMediaStore((s) => s.assets)
-  const removeClip = useProjectStore((s) => s.removeClip)
-  const removeAsset = useMediaStore((s) => s.removeAsset)
   const selectedClipId = useTimelineStore((s) => s.selectedClipId)
 
   return (
@@ -117,15 +115,11 @@ function EditorContent() {
                 </div>
                 <button
                   onClick={async () => {
-                    const clipsToRemove = clips.filter((c) => c.mediaAssetId === asset.id)
-                    for (const c of clipsToRemove) removeClip(c.id)
-
-                    // Delete persistent records/files so reload doesn't resurrect assets.
-                    await deleteMediaAsset(asset.id)
-                    await deleteMediaFile(asset.opfsPath)
-                    if (asset.thumbnailPath) await deleteThumbnail(asset.thumbnailPath)
-
-                    removeAsset(asset.id)
+                    try {
+                      await removeMediaAssetAndAssociatedClips(asset.id)
+                    } catch (err) {
+                      console.error('Remove failed', err)
+                    }
                   }}
                   className="text-xs text-red-400 active:text-red-300 shrink-0 px-2"
                 >

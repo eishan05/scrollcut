@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import type { Project, Clip, TextOverlay } from '../types/project'
 import type { AspectRatio } from '../types/common'
 import { newId } from '../utils/id'
+import { renumberClipOrders } from '../utils/clip-operations'
 
 interface ProjectState {
   currentProject: Project | null
@@ -43,7 +44,12 @@ export const useProjectStore = create<ProjectState>()(
     currentProject: null,
     isDirty: false,
 
-    setProject: (project) => set({ currentProject: project, isDirty: false }),
+    setProject: (project) => set({
+      currentProject: project
+        ? { ...project, timeline: { ...project.timeline, clips: renumberClipOrders(project.timeline.clips) } }
+        : null,
+      isDirty: false,
+    }),
 
     createProject: (name, aspectRatio) => {
       const project: Project = {
@@ -65,11 +71,11 @@ export const useProjectStore = create<ProjectState>()(
     setAspectRatio: (aspectRatio) => set((state) => mutateProject(state, () => ({ aspectRatio }))),
 
     addClip: (clip) => set((state) => mutateProject(state, (p) => ({
-      timeline: { ...p.timeline, clips: [...p.timeline.clips, clip] },
+      timeline: { ...p.timeline, clips: renumberClipOrders([...p.timeline.clips, clip]) },
     }))),
 
     removeClip: (clipId) => set((state) => mutateProject(state, (p) => ({
-      timeline: { ...p.timeline, clips: p.timeline.clips.filter((c) => c.id !== clipId) },
+      timeline: { ...p.timeline, clips: renumberClipOrders(p.timeline.clips.filter((c) => c.id !== clipId)) },
     }))),
 
     updateClip: (clipId, updates) => set((state) => mutateProject(state, (p) => ({
@@ -80,7 +86,7 @@ export const useProjectStore = create<ProjectState>()(
     }))),
 
     reorderClips: (clips) => set((state) => mutateProject(state, () => ({
-      timeline: { ...state.currentProject!.timeline, clips },
+      timeline: { ...state.currentProject!.timeline, clips: renumberClipOrders(clips) },
     }))),
 
     addOverlay: (overlay) => set((state) => mutateProject(state, (p) => ({

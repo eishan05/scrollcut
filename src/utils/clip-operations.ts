@@ -2,6 +2,13 @@ import type { Clip } from '../types/project'
 import type { TimeRange } from '../types/common'
 import { newId } from './id'
 
+function stableClipSort(a: Clip, b: Clip): number {
+  const d = a.order - b.order
+  if (d !== 0) return d
+  // Deterministic tie-breaker in case orders collide.
+  return a.id.localeCompare(b.id)
+}
+
 export function splitClipAt(
   clip: Clip,
   splitTimeLocal: number,
@@ -33,8 +40,14 @@ export function splitClipAt(
 }
 
 export function renumberClipOrders(clips: Clip[]): Clip[] {
-  const sorted = [...clips].sort((a, b) => a.order - b.order)
+  const sorted = [...clips].sort(stableClipSort)
   return sorted.map((clip, i) => ({ ...clip, order: i }))
+}
+
+export function nextClipOrder(clips: Clip[]): number {
+  let max = -1
+  for (const c of clips) max = Math.max(max, c.order)
+  return max + 1
 }
 
 export function clampTrim(trim: TimeRange, mediaDuration: number): TimeRange {
