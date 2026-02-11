@@ -103,10 +103,14 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
     const canvas = canvasRef.current
     if (!canvas) return
 
+    const container = scrollContainerRef.current
+    if (!container) return
+
     const resize = () => {
-      const parent = canvas.parentElement
-      if (!parent) return
-      const rect = parent.getBoundingClientRect()
+      // Size the canvas to the *visible* scroll container, not the full spacer width.
+      // Resizing a canvas resets its drawing buffer; if we tie width to totalDuration,
+      // trimming can continuously change spacer width and cause visible flicker/jank.
+      const rect = container.getBoundingClientRect()
       const dpr = window.devicePixelRatio || 1
       const w = rect.width
       const h = CANVAS_HEIGHT
@@ -124,11 +128,11 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
     }
 
     const observer = new ResizeObserver(resize)
-    if (canvas.parentElement) observer.observe(canvas.parentElement)
+    observer.observe(container)
     resize()
 
     return () => observer.disconnect()
-  }, [])
+  }, [scrollContainerRef])
 
   const drawRef = useRef<() => void>(() => {})
 
@@ -205,6 +209,14 @@ export function TimelineCanvas({ scrollContainerRef }: TimelineCanvasProps) {
             thumbnailImages.set(layout.clipId, existing)
           }
         } else {
+          // Keep showing the previous strip while a new one is being generated.
+          // During trim/drag, keys can change faster than extraction completes; without
+          // this fallback the clip renders with no thumbnails (looks like a blackout).
+          const existing = thumbnailImagesRef.current.get(layout.clipId)
+          if (existing && existing.length > 0) {
+            thumbnailImages.set(layout.clipId, existing)
+          }
+
           // Request extraction
           const videoUrl = videoUrlsRef.current.get(clip.mediaAssetId)
           if (videoUrl) {
