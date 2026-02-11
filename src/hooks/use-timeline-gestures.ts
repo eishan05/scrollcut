@@ -172,8 +172,8 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
     const applyScrollMove = () => {
       const container = scrollContainerRef.current
       if (container) {
-        const delta = ptr.lastX - x
-        container.scrollLeft += delta
+        // Finger-drag scrolling: move finger right => content follows finger => scrollLeft decreases.
+        container.scrollLeft = scrollStartX.current - dx
         useTimelineStore.getState().setScrollX(container.scrollLeft)
       }
     }
@@ -184,6 +184,11 @@ export function useTimelineGestures(scrollContainerRef: React.RefObject<HTMLDivE
         if (Math.abs(dx) > DRAG_THRESHOLD) {
           clearLongPress()
           gestureMode.current = 'scroll'
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId)
+          } catch {
+            // ignore
+          }
           applyScrollMove()
           break
         } else {
