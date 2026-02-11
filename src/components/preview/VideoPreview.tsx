@@ -1,17 +1,92 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { useProjectStore } from '../../stores/project-store'
 import { useMediaStore } from '../../stores/media-store'
 import { useTimelineStore } from '../../stores/timeline-store'
 import { useVideoPreview } from '../../hooks/use-video-preview'
 import { usePlaybackEngine } from '../../hooks/use-playback-engine'
 import { AspectRatioContainer } from './AspectRatioContainer'
+import { resizeCanvasToContainer } from '../../utils/canvas'
+
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  w: number,
+  h: number,
+): void {
+  const vw = video.videoWidth
+  const vh = video.videoHeight
+  if (!vw || !vh) return
+
+  const scale = Math.max(w / vw, h / vh)
+  const dw = vw * scale
+  const dh = vh * scale
+  const dx = (w - dw) / 2
+  const dy = (h - dh) / 2
+  ctx.drawImage(video, dx, dy, dw, dh)
+}
 
 export function VideoPreview() {
   const project = useProjectStore((s) => s.currentProject)
   const assets = useMediaStore((s) => s.assets)
   const isPlaying = useTimelineStore((s) => s.isPlaying)
 
-  const { videoUrl, videoRef, play, pause } = usePlaybackEngine()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const freezeCanvasRef = useRef<HTMLCanvasElement>(null)
+  const freezeVisibleRef = useRef(false)
+
+  const setFreezeVisible = (visible: boolean) => {
+    freezeVisibleRef.current = visible
+    const canvas = freezeCanvasRef.current
+    if (!canvas) return
+    if (visible) {
+      // Show immediately (don't fade in) so we can cover any black frame.
+      canvas.style.transition = 'none'
+      canvas.style.opacity = '1'
+      requestAnimationFrame(() => {
+        const c = freezeCanvasRef.current
+        if (c) c.style.transition = 'opacity 80ms linear'
+      })
+    } else {
+      // Fade out quickly to reveal the new decoded video frame.
+      canvas.style.transition = 'opacity 80ms linear'
+      canvas.style.opacity = '0'
+    }
+  }
+
+  const handleTransitionStart = useCallback((video: HTMLVideoElement) => {
+    const canvas = freezeCanvasRef.current
+    const container = containerRef.current
+    if (!canvas || !container) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const { dpr } = resizeCanvasToContainer(canvas, container)
+    const w = canvas.width / dpr
+    const h = canvas.height / dpr
+    try {
+      // If we can't capture a frame (rare, but can happen during early load),
+      // don't clear the previous freeze frame: better to show "something" than flash black.
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        ctx.clearRect(0, 0, w, h)
+        drawCover(ctx, video, w, h)
+        setFreezeVisible(true)
+      } else if (freezeVisibleRef.current) {
+        setFreezeVisible(true)
+      }
+    } catch {
+      // Keep last freeze frame if present; otherwise, don't show a blank overlay.
+      if (!freezeVisibleRef.current) setFreezeVisible(false)
+    }
+  }, [])
+
+  const handleTransitionEnd = useCallback(() => {
+    setFreezeVisible(false)
+  }, [])
+
+  const { videoUrl, videoRef, play, pause } = usePlaybackEngine({
+    onTransitionStart: handleTransitionStart,
+    onTransitionEnd: handleTransitionEnd,
+  })
 
   const onFrame = useCallback((ctx: CanvasRenderingContext2D, _video: HTMLVideoElement, time: number) => {
     const canvas = ctx.canvas
@@ -30,15 +105,26 @@ export function VideoPreview() {
     ctx.fillRect(w - 70, 8, 62, 24)
   }, [])
 
-  const { canvasRef, containerRef, playing, fps } = useVideoPreview({ onFrame, videoRef })
+  const { canvasRef, playing, fps } = useVideoPreview({ onFrame, videoRef, containerRef, extraCanvasRefs: [freezeCanvasRef] })
 
-  const handleTogglePlay = useCallback(async () => {
+  const handleTogglePlay = useCallback(() => {
     if (isPlaying) {
       pause()
     } else {
-      await play()
+      // On mobile, keep a direct `video.play()` call inside the user gesture.
+      // The engine will still ensure the correct clip/src/seek and start syncing.
+      const v = videoRef.current
+      if (v) {
+        try {
+          v.muted = true
+          void v.play()
+        } catch {
+          // ignore
+        }
+      }
+      void play()
     }
-  }, [isPlaying, pause, play])
+  }, [isPlaying, pause, play, videoRef])
 
   const aspectRatio = project?.aspectRatio ?? '9:16'
 
@@ -53,14 +139,19 @@ export function VideoPreview() {
                 src={videoUrl}
                 playsInline
                 muted
+                preload="auto"
                 className="absolute inset-0 w-full h-full object-cover"
               />
-              {playing && (
-                <canvas
-                  ref={canvasRef}
-                  className="absolute inset-0 pointer-events-none"
-                />
-              )}
+              <canvas
+                ref={freezeCanvasRef}
+                className="absolute inset-0 pointer-events-none"
+                style={{ opacity: 0, transition: 'opacity 80ms linear' }}
+              />
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 pointer-events-none"
+                style={{ display: playing ? 'block' : 'none' }}
+              />
             </>
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">

@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+import { resizeCanvasToContainer } from '../utils/canvas'
 
 interface UseVideoPreviewOptions {
   onFrame?: (ctx: CanvasRenderingContext2D, video: HTMLVideoElement, time: number) => void
   videoRef?: RefObject<HTMLVideoElement | null>
+  containerRef?: RefObject<HTMLDivElement | null>
+  extraCanvasRefs?: Array<RefObject<HTMLCanvasElement | null>>
 }
 
 export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
   const internalVideoRef = useRef<HTMLVideoElement>(null)
   const videoRef = options.videoRef ?? internalVideoRef
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const internalContainerRef = useRef<HTMLDivElement>(null)
+  const containerRef = options.containerRef ?? internalContainerRef
+  const extraCanvasRefsRef = useRef(options.extraCanvasRefs ?? [])
   const [playing, setPlaying] = useState(false)
   const [fps, setFps] = useState(0)
   const loopActiveRef = useRef(false)
@@ -24,6 +29,10 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
     onFrameRef.current = options.onFrame
   }, [options.onFrame])
 
+  useEffect(() => {
+    extraCanvasRefsRef.current = options.extraCanvasRefs ?? []
+  }, [options.extraCanvasRefs])
+
   // Resize canvas to match container with DPR
   useEffect(() => {
     const canvas = canvasRef.current
@@ -31,19 +40,16 @@ export function useVideoPreview(options: UseVideoPreviewOptions = {}) {
     if (!canvas || !container) return
 
     const resize = () => {
-      const rect = container.getBoundingClientRect()
-      const dpr = window.devicePixelRatio || 1
-      canvas.width = Math.max(1, Math.floor(rect.width * dpr))
-      canvas.height = Math.max(1, Math.floor(rect.height * dpr))
-      canvas.style.width = `${rect.width}px`
-      canvas.style.height = `${rect.height}px`
-      const ctx = canvas.getContext('2d')
-      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      resizeCanvasToContainer(canvas, container)
+      for (const ref of extraCanvasRefsRef.current) {
+        const c = ref.current
+        if (c) resizeCanvasToContainer(c, container)
+      }
     }
     resize()
     window.addEventListener('resize', resize)
     return () => window.removeEventListener('resize', resize)
-  }, [])
+  }, [containerRef])
 
   const renderFrame = () => {
     const canvas = canvasRef.current

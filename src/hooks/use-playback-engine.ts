@@ -12,6 +12,13 @@ interface PlaybackClip {
   localSeekTime: number
 }
 
+interface PlaybackEngineOptions {
+  // Called right before swapping <video src> to a different underlying media asset.
+  // Useful for capturing a freeze frame to cover any decode gap.
+  onTransitionStart?: (video: HTMLVideoElement) => void
+  onTransitionEnd?: () => void
+}
+
 function resolvePlayhead(globalTime: number, layouts: ClipLayout[], clips: { id: string; mediaAssetId: string; trim: { start: number; duration: number } }[]): PlaybackClip | null {
   for (const layout of layouts) {
     if (globalTime >= layout.startTime && globalTime < layout.endTime) {
@@ -28,7 +35,25 @@ function resolvePlayhead(globalTime: number, layouts: ClipLayout[], clips: { id:
   return null
 }
 
-export function usePlaybackEngine() {
+function isVideoAtUrl(video: HTMLVideoElement, url: string): boolean {
+  // currentSrc can be empty briefly right after a React-driven `src` update.
+  if (video.currentSrc && video.currentSrc === url) return true
+  if (video.src && video.src === url) return true
+  return false
+}
+
+function endTransitionAfterFrame(video: HTMLVideoElement, end: () => void): void {
+  // Prefer waiting for an actual presented frame when available.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyVideo = video as any
+  if (typeof anyVideo.requestVideoFrameCallback === 'function') {
+    anyVideo.requestVideoFrameCallback(() => end())
+  } else {
+    requestAnimationFrame(() => requestAnimationFrame(() => end()))
+  }
+}
+
+export function usePlaybackEngine(options: PlaybackEngineOptions = {}) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const currentClipIdRef = useRef<string | null>(null)
@@ -37,6 +62,14 @@ export function usePlaybackEngine() {
   const rafRef = useRef(0)
   const pendingSeekTokenRef = useRef(0)
   const pendingSeekTimeRef = useRef<number | null>(null)
+  const transitioningRef = useRef(false)
+  const onTransitionStartRef = useRef<PlaybackEngineOptions['onTransitionStart']>(options.onTransitionStart)
+  const onTransitionEndRef = useRef<PlaybackEngineOptions['onTransitionEnd']>(options.onTransitionEnd)
+
+  useEffect(() => {
+    onTransitionStartRef.current = options.onTransitionStart
+    onTransitionEndRef.current = options.onTransitionEnd
+  }, [options.onTransitionStart, options.onTransitionEnd])
 
   const projectId = useProjectStore((s) => s.currentProject?.id ?? null)
   const clipsKey = useProjectStore((s) => {
@@ -144,6 +177,7 @@ export function usePlaybackEngine() {
     const video = videoRef.current
     if (video) video.pause()
     playingRef.current = false
+    transitioningRef.current = false
     useTimelineStore.getState().setIsPlaying(false)
     cancelAnimationFrame(rafRef.current)
   }, [])
@@ -200,6 +234,13 @@ export function usePlaybackEngine() {
                   // Keep playing (seek may briefly stall while decoding).
                   video.play().catch(() => {})
                 } else {
+                  // Switching to a different underlying media asset can cause a short black flash
+                  // while the new source decodes its first frame. Let the UI capture a freeze-frame
+                  // before swapping sources to cover the gap.
+                  if (!transitioningRef.current) {
+                    transitioningRef.current = true
+                    try { onTransitionStartRef.current?.(video) } catch { /* noop */ }
+                  }
                   video.pause()
                   loadClipVideo(nextClip.mediaAssetId).then((url) => {
                     if (url && playingRef.current) {
@@ -213,8 +254,36 @@ export function usePlaybackEngine() {
                             if (pendingSeekTokenRef.current !== token) return
                             v.play().catch(() => {})
                           }
-                          v.addEventListener('loadedmetadata', start, { once: true })
-                          if (v.readyState >= 1 && v.currentSrc === url) start()
+                          // Start playback as soon as metadata is available. Some browsers won't
+                          // fire `loadeddata` until playback starts, so gating on it can deadlock.
+                          // We'll keep the freeze-frame overlay up until `loadeddata`/`playing`.
+                          let started = false
+                          const startOnce = () => {
+                            if (started) return
+                            started = true
+                            v.removeEventListener('loadedmetadata', startOnce)
+                            start()
+                          }
+                          v.addEventListener('loadedmetadata', startOnce)
+                          if (v.readyState >= 1 && isVideoAtUrl(v, url)) startOnce()
+
+                          let ended = false
+                          const endOnce = () => {
+                            if (ended) return
+                            ended = true
+                            v.removeEventListener('loadeddata', endOnce)
+                            v.removeEventListener('playing', onPlaying)
+                            endTransitionAfterFrame(v, () => {
+                              transitioningRef.current = false
+                              try { onTransitionEndRef.current?.() } catch { /* noop */ }
+                            })
+                          }
+                          const onPlaying = () => {
+                            if (v.readyState >= 2) endOnce()
+                          }
+                          v.addEventListener('loadeddata', endOnce)
+                          v.addEventListener('playing', onPlaying)
+                          if (v.readyState >= 2 && isVideoAtUrl(v, url)) endOnce()
                         }
                       })
                     }
@@ -249,6 +318,25 @@ export function usePlaybackEngine() {
     const playheadTime = useTimelineStore.getState().playheadTime
     const resolved = resolvePlayhead(playheadTime, layouts, clips)
 
+    // Fast path: if the preview is already on the correct clip/source, attempt to play immediately.
+    // This keeps the `video.play()` call close to the user gesture on mobile.
+    const v0 = videoRef.current
+    if (resolved && resolved.clipId === currentClipIdRef.current && videoUrl && v0 && isVideoAtUrl(v0, videoUrl)) {
+      playingRef.current = true
+      useTimelineStore.getState().setIsPlaying(true)
+      try {
+        const p = v0.play()
+        p.then(() => startPlayheadSync()).catch(() => {
+          playingRef.current = false
+          useTimelineStore.getState().setIsPlaying(false)
+        })
+      } catch {
+        playingRef.current = false
+        useTimelineStore.getState().setIsPlaying(false)
+      }
+      return
+    }
+
     let nextUrl: string | null = null
     let nextSeekTime = 0
     let waitForNewSource = false
@@ -279,26 +367,47 @@ export function usePlaybackEngine() {
       }
     }
 
+    const v = videoRef.current
+    if (!v) return
+
     playingRef.current = true
     useTimelineStore.getState().setIsPlaying(true)
-    requestAnimationFrame(() => {
-      const v = videoRef.current
-      if (!v) return
-      const token = pendingSeekTokenRef.current
-      const start = () => {
-        if (pendingSeekTokenRef.current !== token) return
-        v.play().catch(() => {})
-      }
-      if (waitForNewSource && nextUrl) {
-        v.addEventListener('loadedmetadata', start, { once: true })
-        if (v.readyState >= 1 && v.currentSrc === nextUrl) start()
-        return
-      }
 
-      if (v.readyState >= 1) start()
-      else v.addEventListener('loadedmetadata', start, { once: true })
-    })
-    startPlayheadSync()
+    const token = pendingSeekTokenRef.current
+    let started = false
+    const attemptStart = () => {
+      if (started) return
+      if (pendingSeekTokenRef.current !== token) return
+      started = true
+      try {
+        const p = v.play()
+        p.then(() => startPlayheadSync()).catch(() => {
+          playingRef.current = false
+          useTimelineStore.getState().setIsPlaying(false)
+        })
+      } catch {
+        playingRef.current = false
+        useTimelineStore.getState().setIsPlaying(false)
+      }
+    }
+
+    // If we swapped sources, wait for metadata so seeks/currentTime behave.
+    // Otherwise, start as soon as metadata is present (don't gate on loadeddata).
+      if (waitForNewSource && nextUrl) {
+        const startOnce = () => {
+          v.removeEventListener('loadedmetadata', startOnce)
+          attemptStart()
+        }
+        v.addEventListener('loadedmetadata', startOnce)
+        if (v.readyState >= 1 && isVideoAtUrl(v, nextUrl)) startOnce()
+      } else {
+        const startOnce = () => {
+          v.removeEventListener('loadedmetadata', startOnce)
+          attemptStart()
+        }
+        if (v.readyState >= 1) attemptStart()
+        else v.addEventListener('loadedmetadata', startOnce)
+      }
   }, [loadClipVideo, setSourceAndSeek, startPlayheadSync, videoUrl])
 
   // Load a reasonable initial clip when the project/clip list changes.
